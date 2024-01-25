@@ -1,0 +1,63 @@
+using Newtonsoft.Json.Linq;
+using Newtonsoft.Json.Schema;
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Web.Http;
+
+public class FhirValidationController : ApiController
+{
+    private const string PatientSchema = @"
+        {
+            'type': 'object',
+            'properties': {
+                'resourceType': {'type': 'string', 'enum': ['Patient']},
+                'id': {'type': 'string'},
+                'status': {'type': 'string', 'enum': ['active', 'inactive']}
+                // Add more properties as needed
+            },
+            'required': ['resourceType', 'id', 'status']
+        }";
+
+    [HttpPost]
+    [Route("api/validate")]
+    public IHttpActionResult ValidateFhirBundle([FromBody] JObject bundle)
+    {
+        try
+        {
+            // Assuming the bundle is a list of resources
+            var resources = bundle["entry"]?.Children();
+            if (resources != null)
+            {
+                foreach (var resource in resources)
+                {
+                    ValidateResource(resource["resource"]);
+                }
+            }
+        }
+        catch (ValidationException ex)
+        {
+            return Content(HttpStatusCode.BadRequest, new { error = "Validation failed", details = ex.Message });
+        }
+
+        return Ok(new { message = "Validation successful" });
+    }
+
+    private void ValidateResource(JToken resource)
+    {
+        JSchema schema = JSchema.Parse(PatientSchema);
+
+        if (!resource.IsValid(schema))
+        {
+            var errorMessages = string.Join(", ", resource.SchemaValidate(schema));
+            throw new ValidationException(errorMessages);
+        }
+    }
+
+    public class ValidationException : Exception
+    {
+        public ValidationException(string message) : base(message)
+        {
+        }
+    }
+}
