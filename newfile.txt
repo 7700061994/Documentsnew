@@ -1,63 +1,75 @@
-using Newtonsoft.Json.Linq;
-using Newtonsoft.Json.Schema;
 using System;
-using System.Net;
-using System.Net.Http;
-using System.Web.Http;
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using Hl7.Fhir.Model;
 
-public class FhirValidationController : ApiController
+public class FhirBundleConverter : JsonConverter<Bundle>
 {
-    private const string PatientSchema = @"
-        {
-            'type': 'object',
-            'properties': {
-                'resourceType': {'type': 'string', 'enum': ['Patient']},
-                'id': {'type': 'string'},
-                'status': {'type': 'string', 'enum': ['active', 'inactive']}
-                // Add more properties as needed
-            },
-            'required': ['resourceType', 'id', 'status']
-        }";
-
-    [HttpPost]
-    [Route("api/validate")]
-    public IHttpActionResult ValidateFhirBundle([FromBody] JObject bundle)
+    public override bool CanConvert(Type objectType)
     {
-        try
+        return objectType == typeof(Bundle);
+    }
+
+    public override Bundle Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        // Check if the current token is the start of an object
+        if (reader.TokenType != JsonTokenType.StartObject)
         {
-            // Assuming the bundle is a list of resources
-            var resources = bundle["entry"]?.Children();
-            if (resources != null)
+            throw new JsonException("Invalid FHIR Bundle JSON format. Expected start of object.");
+        }
+
+        // Create a new FHIR Bundle
+        var bundle = new Bundle();
+
+        // Read properties of the Bundle
+        while (reader.Read())
+        {
+            if (reader.TokenType == JsonTokenType.EndObject)
             {
-                foreach (var resource in resources)
-                {
-                    ValidateResource(resource["resource"]);
-                }
+                return bundle;
+            }
+
+            if (reader.TokenType != JsonTokenType.PropertyName)
+            {
+                throw new JsonException("Invalid FHIR Bundle JSON format. Expected property name.");
+            }
+
+            string propertyName = reader.GetString();
+
+            switch (propertyName)
+            {
+                case "resourceType":
+                    bundle.ResourceType = reader.GetString();
+                    break;
+                case "type":
+                    bundle.Type = (Bundle.BundleType)Enum.Parse(typeof(Bundle.BundleType), reader.GetString());
+                    break;
+                // Add more cases for other properties of the Bundle class as needed
+                default:
+                    reader.Skip();
+                    break;
             }
         }
-        catch (ValidationException ex)
-        {
-            return Content(HttpStatusCode.BadRequest, new { error = "Validation failed", details = ex.Message });
-        }
 
-        return Ok(new { message = "Validation successful" });
+        throw new JsonException("Invalid FHIR Bundle JSON format. Unexpected end of JSON.");
     }
 
-    private void ValidateResource(JToken resource)
+    public override void Write(Utf8JsonWriter writer, Bundle value, JsonSerializerOptions options)
     {
-        JSchema schema = JSchema.Parse(PatientSchema);
+        // Write properties of the Bundle to the JSON writer
+        writer.WriteStartObject();
 
-        if (!resource.IsValid(schema))
-        {
-            var errorMessages = string.Join(", ", resource.SchemaValidate(schema));
-            throw new ValidationException(errorMessages);
-        }
-    }
+        // Write resourceType property
+        writer.WritePropertyName("resourceType");
+        writer.WriteStringValue(value.ResourceType);
 
-    public class ValidationException : Exception
-    {
-        public ValidationException(string message) : base(message)
-        {
-        }
+        // Write type property
+        writer.WritePropertyName("type");
+        writer.WriteStringValue(value.Type.ToString());
+
+        // Add more lines to write other properties of the Bundle class
+
+        writer.WriteEndObject();
     }
 }
