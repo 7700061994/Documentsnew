@@ -1,82 +1,92 @@
-Step 1: Setting up the Environment
-Follow the same steps as before.
-
-Step 2: Define the Grammar
-Create a grammar file CqlGrammar.g4 defining the syntax of CQL using ANTLR grammar syntax.
-
-Example (simplified):
-
-antlr
-Copy code
-grammar CqlGrammar;
-
-query: selectStatement;
-
-selectStatement: 'SELECT' selectFields 'FROM' tableName;
-
-selectFields: (columnName ',')* columnName;
-
-columnName: Identifier;
-
-tableName: Identifier;
-
-Identifier: [a-zA-Z_][a-zA-Z0-9_]*;
-Step 3: Generate Lexer and Parser
-Use ANTLR to generate lexer and parser classes for CQL grammar.
-
-Step 4: Implement Conversion Logic
-Create a C# class to handle the conversion logic.
-
-csharp
-Copy code
-using Antlr4.Runtime;
-using Antlr4.Runtime.Misc;
-
-public class CqlToElmConverter
-{
-    public string Convert(string cqlQuery)
+ public override void EnterLibraryDefinition(CqlGrammarParser.LibraryDefinitionContext context)
     {
-        var inputStream = new AntlrInputStream(cqlQuery);
-        var lexer = new CqlGrammarLexer(inputStream);
-        var tokenStream = new CommonTokenStream(lexer);
-        var parser = new CqlGrammarParser(tokenStream);
-
-        var tree = parser.query(); // Starting rule in the grammar
-
-        var visitor = new CqlToElmVisitor();
-        return visitor.Visit(tree);
-    }
-}
-
-public class CqlToElmVisitor : CqlGrammarBaseVisitor<string>
-{
-    public override string VisitSelectStatement([NotNull] CqlGrammarParser.SelectStatementContext context)
-    {
-        var selectFields = Visit(context.selectFields());
-        var tableName = context.tableName().GetText();
-        return $"query {tableName} = select [{selectFields}] from {tableName}";
+        string libraryName = context.qualifiedIdentifier().GetText();
+        string libraryVersion = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
+        elmCode.AppendLine($"library {libraryName} version {libraryVersion}");
     }
 
-    public override string VisitSelectFields([NotNull] CqlGrammarParser.SelectFieldsContext context)
+    public override void EnterParameterDefinition(CqlGrammarParser.ParameterDefinitionContext context)
     {
-        var columns = context.columnName().Select(c => c.GetText());
-        return string.Join(", ", columns);
+        string parameterName = context.identifier().GetText();
+        string parameterType = context.typeSpecifier().GetText();
+        elmCode.AppendLine($"parameter \"{parameterName}\" {parameterType}");
     }
-}
-Step 5: Test the Converter
-Write some test cases to ensure the conversion works as expected.
 
-csharp
-Copy code
-class Program
-{
-    static void Main(string[] args)
+    public override void EnterUsingDefinition(CqlGrammarParser.UsingDefinitionContext context)
     {
-        var converter = new CqlToElmConverter();
-        string cqlQuery = "SELECT patient_name, diagnosis FROM patient_records;";
-        string elmQuery = converter.Convert(cqlQuery);
-        Console.WriteLine(elmQuery);
+        string modelName = context.modelIdentifier().GetText();
+        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
+        elmCode.AppendLine($"using {modelName} version {versionSpecifier}");
     }
-}
-Step 6: Run the Program
-Execute the program and observe the converted Elm query.
+
+    public override void EnterIncludeDefinition(CqlGrammarParser.IncludeDefinitionContext context)
+    {
+        string libraryName = context.qualifiedIdentifier().GetText();
+        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
+        string alias = context.localIdentifier()?.GetText();
+        if (alias != null)
+        {
+            elmCode.AppendLine($"include {libraryName} version {versionSpecifier} called {alias}");
+        }
+        else
+        {
+            elmCode.AppendLine($"include {libraryName} version {versionSpecifier}");
+        }
+    }
+
+    public override void EnterCodeSystemDefinition(CqlGrammarParser.CodeSystemDefinitionContext context)
+    {
+        string codeSystemName = context.identifier().GetText();
+        string codeSystemId = context.STRING().GetText();
+        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
+        elmCode.AppendLine($"codesystem {codeSystemName} : {codeSystemId} version {versionSpecifier}");
+    }
+
+    public override void EnterValueSetDefinition(CqlGrammarParser.ValueSetDefinitionContext context)
+    {
+        string valueSetName = context.identifier().GetText();
+        string valueSetId = context.STRING().GetText();
+        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
+        string codeSystems = context.codesystems()?.GetText() ?? "";
+        elmCode.AppendLine($"valueset {valueSetName} : {valueSetId} version {versionSpecifier} {codeSystems}");
+    }
+
+    public override void EnterCodeDefinition(CqlGrammarParser.CodeDefinitionContext context)
+    {
+        string codeName = context.identifier().GetText();
+        string codeId = context.STRING().GetText();
+        string codeSystem = context.codesystemIdentifier().GetText();
+        string display = context.displayClause()?.GetText() ?? "";
+        elmCode.AppendLine($"code {codeName} : {codeId} from {codeSystem} {display}");
+    }
+
+    public override void EnterConceptDefinition(CqlGrammarParser.ConceptDefinitionContext context)
+    {
+        string conceptName = context.identifier().GetText();
+        string codes = string.Join(", ", context.codeIdentifier().Select(c => c.GetText()));
+        string display = context.displayClause()?.GetText() ?? "";
+        elmCode.AppendLine($"concept {conceptName} : {{ {codes} }} {display}");
+    }
+
+    public override void EnterExpressionDefinition(CqlGrammarParser.ExpressionDefinitionContext context)
+    {
+        string expressionName = context.identifier().GetText();
+        string expression = context.expression().GetText();
+        elmCode.AppendLine($"define \"{expressionName}\": {expression}");
+    }
+
+    public override void EnterContextDefinition(CqlGrammarParser.ContextDefinitionContext context)
+    {
+        string modelName = context.modelIdentifier()?.GetText() ?? "";
+        string contextName = context.identifier().GetText();
+        elmCode.AppendLine($"context {modelName}.{contextName}");
+    }
+
+    public override void EnterFunctionDefinition(CqlGrammarParser.FunctionDefinitionContext context)
+    {
+        string functionName = context.identifierOrFunctionIdentifier().GetText();
+        string returnType = context.typeSpecifier()?.GetText() ?? "Any";
+        string parameters = string.Join(", ", context.operandDefinition().Select(p => $"{p.identifier().GetText()} : {p.typeSpecifier().GetText()}"));
+        string functionBody = context.functionBody()?.GetText() ?? "external";
+        elmCode.AppendLine($"define function {functionName}({parameters}) returns {returnType}: {functionBody}");
+    }
