@@ -1,92 +1,142 @@
- public override void EnterLibraryDefinition(CqlGrammarParser.LibraryDefinitionContext context)
-    {
-        string libraryName = context.qualifiedIdentifier().GetText();
-        string libraryVersion = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
-        elmCode.AppendLine($"library {libraryName} version {libraryVersion}");
-    }
-
-    public override void EnterParameterDefinition(CqlGrammarParser.ParameterDefinitionContext context)
-    {
-        string parameterName = context.identifier().GetText();
-        string parameterType = context.typeSpecifier().GetText();
-        elmCode.AppendLine($"parameter \"{parameterName}\" {parameterType}");
-    }
-
-    public override void EnterUsingDefinition(CqlGrammarParser.UsingDefinitionContext context)
-    {
-        string modelName = context.modelIdentifier().GetText();
-        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
-        elmCode.AppendLine($"using {modelName} version {versionSpecifier}");
-    }
-
-    public override void EnterIncludeDefinition(CqlGrammarParser.IncludeDefinitionContext context)
-    {
-        string libraryName = context.qualifiedIdentifier().GetText();
-        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
-        string alias = context.localIdentifier()?.GetText();
-        if (alias != null)
+public static string ConvertCQLToELM(string cql)
         {
-            elmCode.AppendLine($"include {libraryName} version {versionSpecifier} called {alias}");
+            var library = ParseCQL(cql);
+            var elmOutput = GenerateELM(library);
+            return elmOutput;
         }
-        else
+
+        private static CQLLibrary ParseCQL(string cql)
         {
-            elmCode.AppendLine($"include {libraryName} version {versionSpecifier}");
+            // Here you should implement the CQL parsing logic
+            var library = new CQLLibrary();
+            // Sample implementation to extract parameters, value sets, and other components from CQL
+            library.Parameters = ExtractParameters(cql);
+            library.ValueSets = ExtractValueSets(cql);
+            library.Statements = ExtractStatements(cql);
+            library.Codes = ExtractCodes(cql);
+            // Add logic to extract other components like CodeSystems, Codes, Statements, etc.
+            return library;
         }
-    }
 
-    public override void EnterCodeSystemDefinition(CqlGrammarParser.CodeSystemDefinitionContext context)
-    {
-        string codeSystemName = context.identifier().GetText();
-        string codeSystemId = context.STRING().GetText();
-        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
-        elmCode.AppendLine($"codesystem {codeSystemName} : {codeSystemId} version {versionSpecifier}");
-    }
+        private static string GenerateELM(CQLLibrary library)
+        {
+            // Here you should implement the ELM generation logic
+            var elmOutput = new StringBuilder();
+            elmOutput.AppendLine($"library {library.Identifier.Id} version {library.Identifier.Version}" + Environment.NewLine + "{");
 
-    public override void EnterValueSetDefinition(CqlGrammarParser.ValueSetDefinitionContext context)
-    {
-        string valueSetName = context.identifier().GetText();
-        string valueSetId = context.STRING().GetText();
-        string versionSpecifier = context.versionSpecifier()?.GetText() ?? "'1.0.0'";
-        string codeSystems = context.codesystems()?.GetText() ?? "";
-        elmCode.AppendLine($"valueset {valueSetName} : {valueSetId} version {versionSpecifier} {codeSystems}");
-    }
+            // Generate ELM for parameters
+            foreach (var parameter in library.Parameters)
+            {
+                elmOutput.AppendLine($"  parameter {parameter.Name} {parameter.ResultTypeSpecifier}");
+            }
 
-    public override void EnterCodeDefinition(CqlGrammarParser.CodeDefinitionContext context)
-    {
-        string codeName = context.identifier().GetText();
-        string codeId = context.STRING().GetText();
-        string codeSystem = context.codesystemIdentifier().GetText();
-        string display = context.displayClause()?.GetText() ?? "";
-        elmCode.AppendLine($"code {codeName} : {codeId} from {codeSystem} {display}");
-    }
+            // Generate ELM for value sets
+            foreach (var valueSet in library.ValueSets)
+            {
+                elmOutput.AppendLine($"  valueset \"{valueSet.Name}\" : '{valueSet.Id}'");
+            }
 
-    public override void EnterConceptDefinition(CqlGrammarParser.ConceptDefinitionContext context)
-    {
-        string conceptName = context.identifier().GetText();
-        string codes = string.Join(", ", context.codeIdentifier().Select(c => c.GetText()));
-        string display = context.displayClause()?.GetText() ?? "";
-        elmCode.AppendLine($"concept {conceptName} : {{ {codes} }} {display}");
-    }
+            // Generate ELM for statements
+            foreach (var statement in library.Statements)
+            {
+                elmOutput.AppendLine($"  {GenerateStatementELM(statement)}");
+            }
 
-    public override void EnterExpressionDefinition(CqlGrammarParser.ExpressionDefinitionContext context)
-    {
-        string expressionName = context.identifier().GetText();
-        string expression = context.expression().GetText();
-        elmCode.AppendLine($"define \"{expressionName}\": {expression}");
-    }
+            // Generate ELM for codes
+            foreach (var code in library.Codes)
+            {
+                elmOutput.AppendLine($"  code {code.Name} : '{code.Id}'");
+            }
 
-    public override void EnterContextDefinition(CqlGrammarParser.ContextDefinitionContext context)
-    {
-        string modelName = context.modelIdentifier()?.GetText() ?? "";
-        string contextName = context.identifier().GetText();
-        elmCode.AppendLine($"context {modelName}.{contextName}");
-    }
+            // Add logic to generate ELM for CodeSystems, Codes, Statements, etc.
 
-    public override void EnterFunctionDefinition(CqlGrammarParser.FunctionDefinitionContext context)
-    {
-        string functionName = context.identifierOrFunctionIdentifier().GetText();
-        string returnType = context.typeSpecifier()?.GetText() ?? "Any";
-        string parameters = string.Join(", ", context.operandDefinition().Select(p => $"{p.identifier().GetText()} : {p.typeSpecifier().GetText()}"));
-        string functionBody = context.functionBody()?.GetText() ?? "external";
-        elmCode.AppendLine($"define function {functionName}({parameters}) returns {returnType}: {functionBody}");
-    }
+            elmOutput.AppendLine("}");
+            return elmOutput.ToString();
+        }
+
+        private static string GenerateStatementELM(CQLStatement statement)
+        {
+            var sb = new StringBuilder();
+            sb.Append($"define {statement.Name}");
+
+            if (!string.IsNullOrEmpty(statement.Context))
+            {
+                sb.Append($" context {statement.Context}");
+            }
+
+            sb.AppendLine(":");
+
+            sb.AppendLine($"  {GenerateExpressionELM(statement.Expression)}");
+
+            return sb.ToString();
+        }
+
+        private static string GenerateExpressionELM(CQLExpression expression)
+        {
+            // Here you should implement the logic to generate ELM for different types of expressions
+            return expression.ToString(); // Placeholder implementation
+        }
+
+        private static List<CQLParameter> ExtractParameters(string cql)
+        {
+            var parameters = new List<CQLParameter>();
+            // Regex pattern to match parameter definitions
+            var parameterPattern = @"parameter\s+(?<name>\w+)\s+(?<type>[^{]+)(?<resultType>{[^}]+})?";
+            var matches = Regex.Matches(cql, parameterPattern, RegexOptions.IgnoreCase);
+            foreach (Match match in matches)
+            {
+                var name = match.Groups["name"].Value.Trim();
+                var type = match.Groups["type"].Value.Trim();
+                var resultType = match.Groups["resultType"].Value.Trim();
+                parameters.Add(new CQLParameter { Name = name, Type = type, ResultTypeSpecifier = resultType });
+            }
+            return parameters;
+        }
+
+        private static List<CQLValueSet> ExtractValueSets(string cql)
+        {
+            var valueSets = new List<CQLValueSet>();
+            // Regex pattern to match value set definitions
+            var valueSetPattern = @"valueset\s+""(?<name>[^""]+)""\s*:\s*'(?<id>[^']+)'\s*;";
+            var matches = Regex.Matches(cql, valueSetPattern, RegexOptions.IgnoreCase);
+            foreach (Match match in matches)
+            {
+                var name = match.Groups["name"].Value.Trim();
+                var id = match.Groups["id"].Value.Trim();
+                valueSets.Add(new CQLValueSet { Name = name, Id = id });
+            }
+            return valueSets;
+        }
+
+        private static List<CQLStatement> ExtractStatements(string cql)
+        {
+            var statements = new List<CQLStatement>();
+            // Sample logic to extract statements from CQL
+            // You may need to enhance this to handle more complex statement structures
+            var statementPattern = @"define\s+(?<name>\w+)\s*(context\s+(?<context>\w+))?\s*:\s*\r?\n\s*(?<expression>[^;]+);";
+            var matches = Regex.Matches(cql, statementPattern, RegexOptions.IgnoreCase);
+            foreach (Match match in matches)
+            {
+                var name = match.Groups["name"].Value.Trim();
+                var context = match.Groups["context"].Value.Trim();
+                var expression = match.Groups["expression"].Value.Trim();
+                statements.Add(new CQLStatement { Name = name, Context = context, Expression = expression });
+            }
+            return statements;
+        }
+
+        private static List<CQLCode> ExtractCodes(string cql)
+        {
+            var codes = new List<CQLCode>();
+            // Sample logic to extract codes from CQL
+            // You may need to enhance this to handle more complex code definitions
+            var codePattern = @"code\s+(?<name>\w+)\s*:\s*'(?<id>[^']+)';";
+            var matches = Regex.Matches(cql, codePattern, RegexOptions.IgnoreCase);
+            foreach (Match match in matches)
+            {
+                var name = match.Groups["name"].Value.Trim();
+                var id = match.Groups["id"].Value.Trim();
+                codes.Add(new CQLCode { Name = name, Id = id });
+            }
+            return codes;
+        }
